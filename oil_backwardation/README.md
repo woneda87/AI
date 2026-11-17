@@ -24,3 +24,5 @@ Re-run with a new observation CSV and expanded calendars to update the same outp
 The program writes four CSVs under `data/`, four PNGs and a self-contained HTML under `charts/`, and prints observed and scheduled session counts. The market tracks use the front contract through its last trading date and then roll on the next session. The fixed comparison uses the same pair throughout and ends eligibility on the earlier expiry.
 
 The nominal price export and chart show each scheduled M1, M2 and M6 leg in USD/bbl using the same contract ranks as the rolling spreads. Each leg remains visible when its own price is observed, even if the corresponding spread is blank.
+
+With CL selected, the pipeline also writes `data/oil_wti_monthly_contract_pairs_2026.csv` and `charts/2026_wti_monthly_contract_pairs.png`. In each trade month it selects the next two delivery months, for example CLG26−CLH26 for January and CLX26−CLZ26 for October. It preserves the scheduled pair and leaves all post-expiry dates blank through month-end. This chart uses the selected CL price basis and source.

@@ -2,7 +2,9 @@ import unittest
 
 import pandas as pd
 
-from oil_backwardation.pipeline import COLUMNS, combine_prices, contract_code, derived, nominal_prices, spread_series
+from oil_backwardation.pipeline import (
+    COLUMNS, combine_prices, contract_code, derived, nominal_prices, spread_series, wti_monthly_pairs,
+)
 
 
 class SpreadTests(unittest.TestCase):
@@ -54,6 +56,28 @@ class SpreadTests(unittest.TestCase):
         self.assertEqual(nominal.loc[dates[1], "M1"], 81)
         self.assertEqual(nominal.loc[dates[1], "M2"], 82)
         self.assertTrue(pd.isna(nominal.loc[dates[1], "M6"]))
+
+    def test_monthly_wti_pair_stays_fixed_through_expiry(self):
+        prices = combine_prices(self.fixture(), self.fixture(
+            self.quote("2026-01-20", "CLG26", "2026-02", 60.34),
+            self.quote("2026-01-20", "CLH26", "2026-03", 60.00),
+            self.quote("2026-01-21", "CLG26", "2026-02", 60.34),
+            self.quote("2026-01-21", "CLH26", "2026-03", 61.00),
+            self.quote("2026-02-02", "CLH26", "2026-03", 61.00),
+            self.quote("2026-02-02", "CLJ26", "2026-04", 62.00),
+        ))
+        sessions = pd.to_datetime(["2026-01-20", "2026-01-21", "2026-02-02"])
+        expiries = pd.DataFrame({
+            "product": "CL", "delivery_month": ["2026-02", "2026-03"],
+            "last_trade_date": pd.to_datetime(["2026-01-20", "2026-02-20"]),
+        })
+        pairs = wti_monthly_pairs(prices, sessions, expiries, "settlement", "exchange")
+        self.assertEqual(pairs["near_contract"].tolist(), ["CLG26", "CLG26", "CLH26"])
+        self.assertEqual(pairs["far_contract"].tolist(), ["CLH26", "CLH26", "CLJ26"])
+        self.assertEqual(pairs.loc[0, "spread"], 0.34)
+        self.assertFalse(pairs.loc[1, "eligible"])
+        self.assertTrue(pd.isna(pairs.loc[1, "spread"]))
+        self.assertEqual(pairs.loc[2, "spread"], -1.00)
 
     def test_derived_spreads_preserve_missing_sessions(self):
         values = pd.Series(range(22), dtype=float)

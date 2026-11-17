@@ -92,6 +92,43 @@ def spread_series(prices, sessions, expiries, product, price_type, source):
     return pd.DataFrame(rolling), pd.DataFrame(fixed)
 
 
+def wti_monthly_pairs(prices, sessions, expiries, price_type, source):
+    """Keep a single WTI delivery pair per trade month, through the near leg's expiry."""
+    selected = prices.loc[prices["product"].eq("CL") & prices["price_type"].eq(price_type)
+                          & prices["source"].eq(source)]
+    quotes = selected.set_index(["date", "contract_code"])["price"]
+    expiry = expiries.loc[expiries["product"].eq("CL")].set_index("delivery_month")["last_trade_date"]
+    records = []
+    for day in sessions:
+        trade_month = day.to_period("M")
+        near_month = trade_month + 1
+        near = contract_code("CL", near_month)
+        far = contract_code("CL", trade_month + 2)
+        last_trade = expiry.get(str(near_month), pd.NaT)
+        if pd.isna(last_trade):
+            raise ValueError(f"Missing last trading date for {near}")
+        eligible = day <= last_trade
+        first = quotes.get((day, near), np.nan) if eligible else np.nan
+        second = quotes.get((day, far), np.nan)
+        records.append(dict(date=day, trade_month=str(trade_month), near_contract=near, far_contract=far,
+                            near_last_trade=last_trade, eligible=eligible, near_price=first,
+                            far_price=second, spread=round(first - second, 2),
+                            price_type=price_type, source=source))
+    return pd.DataFrame(records)
+
+
+def plot_wti_monthly_pairs(pairs, output):
+    fig, ax = plt.subplots(figsize=(11, 4), layout="constrained")
+    for _, group in pairs.groupby("trade_month"):
+        ax.plot(group["date"], group["spread"], color=COLORS["CL"], marker="o", markersize=3)
+    ax.axhline(0, color="#8794a2", lw=.9)
+    ax.set(xlim=(START, END), ylabel="USD per barrel", title="2026 WTI · monthly contract pairs",
+           xlabel=f"Trade month +1 minus +2 · {pairs['price_type'].iloc[0]} · {pairs['source'].iloc[0]}")
+    ax.grid(axis="y", alpha=.22)
+    fig.savefig(output / "2026_wti_monthly_contract_pairs.png", dpi=160)
+    plt.close(fig)
+
+
 def derived(series):
     slope = series.rolling(7, min_periods=7).apply(lambda values: np.dot(values, np.arange(-3, 4)) / 28, raw=True)
     return series.rolling(20, min_periods=20).mean(), slope
@@ -243,6 +280,7 @@ def run(args):
     if sessions.duplicated(["product", "date"]).any():
         raise ValueError("Duplicate product/date in session calendar")
     curves, fixed = [], []
+    monthly_pairs = None
     for selection in args.series:
         product, price_type, source = selection.split(":", 2)
         days = pd.DatetimeIndex(sessions.loc[sessions["product"].eq(product), "date"])
@@ -252,6 +290,8 @@ def run(args):
         r, f = spread_series(prices, days, expiries, product, price_type, source)
         curves.append(r)
         fixed.append(f)
+        if product == "CL":
+            monthly_pairs = wti_monthly_pairs(prices, days, expiries, price_type, source)
     rolling, fixed = pd.concat(curves), pd.concat(fixed)
     for frame in (rolling, fixed):
         groups = frame.groupby(["product", "series"], sort=False)["spread"]
@@ -259,14 +299,19 @@ def run(args):
         if frame is fixed:
             frame["slope7"] = groups.transform(lambda s: derived(s)[1])
     nominal = nominal_prices(rolling)
-    for name, frame in [(store.name, prices), ("oil_backwardation_rolling_2026.csv", rolling),
+    exports = [(store.name, prices), ("oil_backwardation_rolling_2026.csv", rolling),
                         ("oil_backwardation_fixed_2026.csv", fixed),
-                        ("oil_nominal_contract_prices_2026.csv", nominal)]:
+                        ("oil_nominal_contract_prices_2026.csv", nominal)]
+    if monthly_pairs is not None:
+        exports.append(("oil_wti_monthly_contract_pairs_2026.csv", monthly_pairs))
+    for name, frame in exports:
         path = data / name
         temp = path.with_suffix(".tmp")
         frame.to_csv(temp, index=False, float_format="%.6f")
         temp.replace(path)
     charts(rolling, fixed, nominal, output_charts)
+    if monthly_pairs is not None:
+        plot_wti_monthly_pairs(monthly_pairs, output_charts)
     coverage = pd.concat([rolling, fixed]).groupby(["product", "series"])["spread"].agg(["count", "size"])
     print(coverage.to_string())
 
