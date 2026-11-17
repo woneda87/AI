@@ -16,6 +16,9 @@ class SpreadTests(unittest.TestCase):
         row = self.quote("2026-11-20", "CLZ26", "2026-12", 84)
         prices = self.fixture(row)
         self.assertEqual(len(combine_prices(prices, prices)), 1)
+        timestamped = prices.assign(source_timestamp="2026-11-20T05:00:00Z")
+        self.assertEqual(combine_prices(prices, timestamped)["source_timestamp"].iloc[0],
+                         "2026-11-20T05:00:00Z")
         with self.assertRaisesRegex(ValueError, "Conflicting"):
             combine_prices(prices, self.fixture(self.quote("2026-11-20", "CLZ26", "2026-12", 86)))
         with self.assertRaisesRegex(ValueError, "delivery month"):

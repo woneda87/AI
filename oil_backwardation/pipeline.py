@@ -41,6 +41,10 @@ def combine_prices(previous, incoming):
         raise ValueError("Observation identity and provenance are required")
     if (prices.groupby(KEY)["price"].nunique() > 1).any():
         raise ValueError("Conflicting observations. Resolve vendor revisions before ingesting")
+    timestamps = prices.groupby(KEY)["source_timestamp"]
+    if (timestamps.nunique() > 1).any():
+        raise ValueError("Conflicting source timestamps for the same observation")
+    prices["source_timestamp"] = timestamps.transform("first")
     return prices.drop_duplicates(KEY, keep="first").sort_values(KEY)[COLUMNS]
 
 
@@ -50,6 +54,11 @@ def spread_series(prices, sessions, expiries, product, price_type, source):
     ]
     quotes = product_prices.set_index(["date", "contract_code"])["price"]
     calendar = expiries.loc[expiries["product"].eq(product)].sort_values("delivery_month")
+    months = pd.PeriodIndex(calendar["delivery_month"], freq="M")
+    if calendar.empty or list(months) != list(pd.period_range(months[0], months[-1], freq="M")):
+        raise ValueError(f"Expiry calendar must contain consecutive delivery months for {product}")
+    if not calendar["last_trade_date"].is_monotonic_increasing or calendar["last_trade_date"].isna().any():
+        raise ValueError(f"Expiry dates must be present and ordered for {product}")
     rolling, fixed = [], []
     previous_front = None
     last_trade = dict(zip(calendar["delivery_month"], calendar["last_trade_date"]))
@@ -168,7 +177,7 @@ def charts(rolling, fixed, output):
                                                     xanchor="left", yanchor="bottom", buttons=buttons)])
     interactive.update_layout(title="2026 oil backwardation", height=1200, template="plotly_white",
                               legend=dict(orientation="h", y=-.06), margin=dict(b=130))
-    interactive.write_html(output / "oil_backwardation_interactive.html", include_plotlyjs=True)
+    interactive.write_html(output / "oil_backwardation_interactive.html", include_plotlyjs=True, div_id="oil-backwardation-2026")
 
 
 def run(args):

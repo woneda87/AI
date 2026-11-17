@@ -10,7 +10,7 @@ Review date 2026-11-17 UTC. The reproducible research run uses NYMEX CL and NYME
 | [Data4ThePeople archive methodology](https://github.com/Data4ThePeople/spr-exchange/blob/f46fa7d299c9ec0074b43a9c851eaa23b70e227e/DATASETS.md) | 10,862 dated contract closes, 6,982 CL and 3,880 BZ. Dated symbols normalize by removing `.NYM`. The archive notes material Yahoo revisions on a later re-pull. | Local research basis is `close`. The source's stated publication practice is derived figures and selected values. Repository commits exclude the bulk observations and generated dataset and charts. |
 | [VIX TermLab WTI](https://vixtermlab.com/wti), [Brent](https://vixtermlab.com/brent), [license](https://vixtermlab.com/license) | 179 reported sessions from 2026-01-02 to 2026-09-18. Brent is BZ and the provider describes its inputs as daily closing bars. | Used contract last-trading-date metadata as a calendar reference. VIX TermLab closes were excluded from this run. The terms do not grant a bulk copy or redistribution license. |
 
-Individual bar timestamps are absent in the archive's tidy export and remain blank. New York is recorded as the archive date convention for the NYMEX contracts. The date is the published trade date. This analysis does not infer a settlement time from it.
+All 10,862 tidy rows matched the pinned raw Yahoo bars by contract, exchange-local date and close to a cent. The underlying CSV records the raw bar timestamp in UTC and the vendor time zone (America/New_York). The bar timestamp identifies the daily date bucket. The time of the closing trade or settlement is unknown.
 
 ## Coverage
 
