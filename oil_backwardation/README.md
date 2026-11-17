@@ -21,4 +21,6 @@ Expiry CSV columns. `product,delivery_month,last_trade_date`. Include consecutiv
 
 Re-run with a new observation CSV and expanded calendars to update the same output directory. Identical price keys deduplicate and earlier values remain. Conflicting revisions fail before any output is written. Use another output directory for a separate revision study. Keep generated market data and charts in storage allowed by the source agreement.
 
-The program writes three CSVs under `data/`, three PNGs and a self-contained HTML under `charts/`, and prints observed and scheduled session counts. The market tracks use the front contract through its last trading date and then roll on the next session. The fixed comparison uses the same pair throughout and ends eligibility on the earlier expiry.
+The program writes four CSVs under `data/`, four PNGs and a self-contained HTML under `charts/`, and prints observed and scheduled session counts. The market tracks use the front contract through its last trading date and then roll on the next session. The fixed comparison uses the same pair throughout and ends eligibility on the earlier expiry.
+
+The nominal price export and chart show each scheduled M1, M2 and M6 leg in USD/bbl using the same contract ranks as the rolling spreads. Each leg remains visible when its own price is observed, even if the corresponding spread is blank.

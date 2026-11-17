@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from oil_backwardation.pipeline import COLUMNS, combine_prices, contract_code, derived, spread_series
+from oil_backwardation.pipeline import COLUMNS, combine_prices, contract_code, derived, nominal_prices, spread_series
 
 
 class SpreadTests(unittest.TestCase):
@@ -49,6 +49,11 @@ class SpreadTests(unittest.TestCase):
         self.assertEqual(rolling.loc[3, "spread"], -1)
         self.assertEqual(fixed.loc[0, "spread"], 1)
         self.assertTrue(pd.isna(fixed.loc[1, "spread"]))
+        nominal = nominal_prices(rolling).pivot(index="date", columns="rank", values="price")
+        self.assertEqual(nominal.loc[dates[0], "M6"], 83)
+        self.assertEqual(nominal.loc[dates[1], "M1"], 81)
+        self.assertEqual(nominal.loc[dates[1], "M2"], 82)
+        self.assertTrue(pd.isna(nominal.loc[dates[1], "M6"]))
 
     def test_derived_spreads_preserve_missing_sessions(self):
         values = pd.Series(range(22), dtype=float)

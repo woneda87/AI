@@ -109,13 +109,57 @@ def change(series, offset):
     return f"{last:%b %d} vs {baseline.index[0]:%b %d}: {observed.iloc[-1] - baseline.iloc[0]:+.2f}"
 
 
-def charts(rolling, fixed, output):
+def nominal_prices(rolling):
+    """Expose observed legs independently, even when the opposite leg is missing."""
+    columns = ["date", "product", "price_type", "source", "roll"]
+    legs = [(rolling.loc[rolling["series"].eq(pair)], rank, side)
+            for pair, rank, side in [("M1-M2", "M1", "near"), ("M1-M2", "M2", "far"), ("M1-M6", "M6", "far")]]
+    return pd.concat([
+        group[columns + [f"{side}_contract", f"{side}_price"]]
+        .rename(columns={f"{side}_contract": "contract_code", f"{side}_price": "price"})
+        .assign(rank=rank)
+        for group, rank, side in legs
+    ], ignore_index=True).sort_values(["product", "date", "rank"])
+
+
+def plot_nominal(nominal, interactive, row, output):
+    fig, ax = plt.subplots(figsize=(11, 5), layout="constrained")
+    styles = {"M1": ("-", "solid"), "M2": ("--", "dash"), "M6": (":", "dot")}
+    for (product, rank), group in nominal.groupby(["product", "rank"], sort=False):
+        color = COLORS[product]
+        label = f"{MARKET[product]} · {rank} · {group['price_type'].iloc[0]}"
+        mpl_style, plotly_style = styles[rank]
+        ax.plot(group["date"], group["price"], color=color, ls=mpl_style,
+                label=label, marker=".", markersize=2)
+        interactive.add_trace(go.Scatter(
+            x=group["date"], y=group["price"].tolist(), name=label, connectgaps=False,
+            mode="lines+markers", marker=dict(size=3), line=dict(color=color, dash=plotly_style),
+            customdata=group[["contract_code", "source"]].to_numpy(),
+            hovertemplate="%{x|%Y-%m-%d}<br>%{customdata[0]} · %{y:.2f} USD/bbl<br>%{customdata[1]}",
+        ), row=row, col=1)
+    for product, group in nominal.loc[nominal["rank"].eq("M1")].groupby("product"):
+        for day in group.loc[group["roll"], "date"]:
+            ax.axvline(day, color=COLORS[product], ls=":", alpha=.2, lw=.9)
+            interactive.add_vline(x=day.to_pydatetime(), line_color=COLORS[product],
+                                  line_dash="dot", opacity=.2, row=row, col=1)
+    ax.set(xlim=(START, END), ylabel="USD per barrel", title="2026 nominal futures prices · M1, M2 and M6")
+    ax.grid(axis="y", alpha=.22)
+    ax.legend(loc="best", fontsize=8, ncols=2)
+    fig.savefig(output / "2026_nominal_contract_prices.png", dpi=160)
+    plt.close(fig)
+    interactive.update_xaxes(range=[START, END], row=row, col=1)
+    interactive.update_yaxes(title_text="USD/bbl", row=row, col=1)
+
+
+def charts(rolling, fixed, nominal, output):
     specs = [
         ("2026_rolling_backwardation", "2026 rolling M1–M6", rolling.loc[rolling["series"].eq("M1-M6")], True),
         ("2026_fixed_backwardation", "Fixed contract spreads", fixed, True),
         ("2026_near_term_backwardation", "2026 rolling M1–M2", rolling.loc[rolling["series"].eq("M1-M2")], False),
     ]
-    interactive = make_subplots(rows=3, cols=1, subplot_titles=[s[1] for s in specs], vertical_spacing=.11)
+    interactive = make_subplots(rows=4, cols=1,
+                                subplot_titles=[s[1] for s in specs] + ["Nominal futures prices · M1, M2 and M6"],
+                                vertical_spacing=.082)
     for row, (filename, title, data, moving_average) in enumerate(specs, 1):
         fig, ax = plt.subplots(figsize=(11, 5), layout="constrained")
         ax.axhline(0, color="#8794a2", lw=.9)
@@ -130,6 +174,7 @@ def charts(rolling, fixed, output):
             contracts = group[["near_contract", "far_contract"]].to_numpy()
             interactive.add_trace(go.Scatter(
                 x=values.index, y=values.tolist(), name=label, line_color=color, connectgaps=False,
+                mode="lines+markers", marker=dict(size=3),
                 customdata=contracts,
                 hovertemplate="%{x|%Y-%m-%d}<br>%{customdata[0]} − %{customdata[1]}<br>%{y:+.2f} USD/bbl",
             ), row=row, col=1)
@@ -163,6 +208,7 @@ def charts(rolling, fixed, output):
         interactive.update_xaxes(range=[START, END], row=row, col=1, rangeslider_visible=False)
         interactive.update_yaxes(title_text="USD/bbl", row=row, col=1)
         interactive.layout.annotations[row-1].hovertext = "<br>".join(notes)
+    plot_nominal(nominal, interactive, 4, output)
     dates = pd.DatetimeIndex(fixed.loc[fixed["spread"].notna(), "date"].unique()).sort_values()
     sessions = pd.DatetimeIndex(fixed["date"].unique()).sort_values()
     if len(dates):
@@ -173,9 +219,9 @@ def charts(rolling, fixed, output):
                 window = [sessions[-count] - pd.Timedelta(hours=12), sessions[-1] + pd.Timedelta(hours=12)]
                 buttons.append(dict(label=f"Latest {count} sessions", method="relayout",
                                     args=[{"xaxis2.range": window}]))
-        interactive.update_layout(updatemenus=[dict(type="buttons", direction="right", x=0, y=.675,
+        interactive.update_layout(updatemenus=[dict(type="buttons", direction="right", x=0, y=interactive.layout.yaxis2.domain[1] + .025,
                                                     xanchor="left", yanchor="bottom", buttons=buttons)])
-    interactive.update_layout(title="2026 oil backwardation", height=1200, template="plotly_white",
+    interactive.update_layout(title="2026 oil backwardation", height=1520, template="plotly_white",
                               legend=dict(orientation="h", y=-.06), margin=dict(b=130))
     interactive.write_html(output / "oil_backwardation_interactive.html", include_plotlyjs=True, div_id="oil-backwardation-2026")
 
@@ -212,13 +258,15 @@ def run(args):
         frame["ma20"] = groups.transform(lambda s: derived(s)[0])
         if frame is fixed:
             frame["slope7"] = groups.transform(lambda s: derived(s)[1])
+    nominal = nominal_prices(rolling)
     for name, frame in [(store.name, prices), ("oil_backwardation_rolling_2026.csv", rolling),
-                        ("oil_backwardation_fixed_2026.csv", fixed)]:
+                        ("oil_backwardation_fixed_2026.csv", fixed),
+                        ("oil_nominal_contract_prices_2026.csv", nominal)]:
         path = data / name
         temp = path.with_suffix(".tmp")
         frame.to_csv(temp, index=False, float_format="%.6f")
         temp.replace(path)
-    charts(rolling, fixed, output_charts)
+    charts(rolling, fixed, nominal, output_charts)
     coverage = pd.concat([rolling, fixed]).groupby(["product", "series"])["spread"].agg(["count", "size"])
     print(coverage.to_string())
 
